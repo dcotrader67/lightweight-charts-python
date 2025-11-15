@@ -166,4 +166,17 @@ class OHLCValidator:
                     f"DataFrame contains NaN values: {nan_counts.to_dict()}"
                 )
         
+        # NEW: Check for duplicate timestamps
+        duplicates = df['time'].duplicated()
+        if duplicates.any():
+            count = duplicates.sum()
+            if fix:
+                # Keep first occurrence, remove duplicates
+                df = df.drop_duplicates(subset='time', keep='first')
+                logger.warning(f"Removed {count} duplicate timestamps")
+            else:
+                raise ValidationError(
+                    f"{count} duplicate timestamps found"
+                )
+        
         return df
