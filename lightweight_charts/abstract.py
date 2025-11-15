@@ -8,6 +8,7 @@ import pandas as pd
 
 from .table import Table
 from .toolbox import ToolBox
+from .validators import OHLCValidator, ValidationError
 from .drawings import Box, HorizontalLine, RayLine, TrendLine, TwoPointDrawing, VerticalLine, VerticalSpan
 from .topbar import TopBar
 from .util import (
@@ -550,6 +551,13 @@ class Candlestick(SeriesCommon):
             self.run_script(f'{self.id}.volumeSeries.setData([])')
             self.candle_data = pd.DataFrame()
             return
+
+        # Validate data
+        try:
+            df = OHLCValidator.validate(df, fix_issues=True)
+        except ValidationError as e:
+            raise ValueError(f"Invalid OHLC data: {e}")
+
         df = self._df_datetime_format(df)
         self.candle_data = df.copy()
         self._last_bar = df.iloc[-1]
