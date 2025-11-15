@@ -139,7 +139,6 @@ class Window:
     ):
         self.run_script(f'Lib.Handler.setRootStyles({js_json(locals())});')
 
-
 class SeriesCommon(Pane):
     def __init__(self, chart: 'AbstractChart', name: str = ''):
         super().__init__(chart.win)
@@ -425,10 +424,16 @@ class SeriesCommon(Pane):
 
 
 class Line(SeriesCommon):
-    def __init__(self, chart, name, color, style, width, price_line, price_label, price_scale_id=None, crosshair_marker=True):
+    def __init__(self, chart, name, color, style, width, price_line, price_label, 
+                 price_scale_id=None, crosshair_marker=True, pane_index=0):
 
         super().__init__(chart, name)
         self.color = color
+        self.pane_index = pane_index
+
+        # Ensure crosshair_marker is boolean
+        if crosshair_marker is None:
+            crosshair_marker = True
 
         self.run_script(f'''
             {self.id} = {self._chart.id}.createLineSeries(
@@ -448,24 +453,10 @@ class Line(SeriesCommon):
                             },
                         }),
                     """ if chart._scale_candles_only else ''}
-                }}
+                }},
+                {pane_index}
             )
         null''')
-
-    # def _set_trend(self, start_time, start_value, end_time, end_value, ray=False, round=False):
-    #     if round:
-    #         start_time = self._single_datetime_format(start_time)
-    #         end_time = self._single_datetime_format(end_time)
-    #     else:
-    #         start_time, end_time = pd.to_datetime((start_time, end_time)).astype('int64') // 10 ** 9
-
-    #     self.run_script(f'''
-    #     {self._chart.id}.chart.timeScale().applyOptions({{shiftVisibleRangeOnNewBar: false}})
-    #     {self.id}.series.setData(
-    #         calculateTrendLine({start_time}, {start_value}, {end_time}, {end_value},
-    #                             {self._chart.id}, {jbool(ray)}))
-    #     {self._chart.id}.chart.timeScale().applyOptions({{shiftVisibleRangeOnNewBar: true}})
-    #     ''')
 
     def delete(self):
         """
@@ -487,9 +478,12 @@ class Line(SeriesCommon):
 
 
 class Histogram(SeriesCommon):
-    def __init__(self, chart, name, color, price_line, price_label, scale_margin_top, scale_margin_bottom):
+    def __init__(self, chart, name, color, price_line, price_label, 
+                 scale_margin_top, scale_margin_bottom, pane_index=0):  # ADD pane_index
         super().__init__(chart, name)
         self.color = color
+        self.pane_index = pane_index  # Store it
+        
         self.run_script(f'''
         {self.id} = {chart.id}.createHistogramSeries(
             "{name}",
@@ -500,7 +494,7 @@ class Histogram(SeriesCommon):
                 priceScaleId: '{self.id}',
                 priceFormat: {{type: "volume"}},
             }},
-            // precision: 2,
+            {pane_index}  // ADD THIS - paneIndex parameter
         )
         {self.id}.series.priceScale().applyOptions({{
             scaleMargins: {{top:{scale_margin_top}, bottom: {scale_margin_bottom}}}
@@ -710,7 +704,10 @@ class AbstractChart(Candlestick, Pane):
         self.events: Events = Events(self)
 
         from lightweight_charts.polygon import PolygonAPI
+        from .panes import PaneManager  # ADD THIS
+        
         self.polygon: PolygonAPI = PolygonAPI(self)
+        self.pane_manager = PaneManager(self)  # ADD THIS
 
         self.run_script(
             f'{self.id} = new Lib.Handler("{self.id}", {width}, {height}, "{position}", {jbool(autosize)})')
@@ -730,25 +727,39 @@ class AbstractChart(Candlestick, Pane):
     def create_line(
             self, name: str = '', color: str = 'rgba(214, 237, 255, 0.6)',
             style: LINE_STYLE = 'solid', width: int = 2,
-            price_line: bool = True, price_label: bool = True, price_scale_id: Optional[str] = None
+            price_line: bool = True, price_label: bool = True, 
+            price_scale_id: Optional[str] = None,
+            crosshair_marker: bool = True,  # ADD THIS
+            pane_index: int = 0
     ) -> Line:
         """
         Creates and returns a Line object.
+        
+        Args:
+            pane_index: The pane index to add this line to (0 = main pane)
         """
-        self._lines.append(Line(self, name, color, style, width, price_line, price_label, price_scale_id))
-        return self._lines[-1]
+        line = Line(self, name, color, style, width, price_line, price_label, 
+                    price_scale_id, crosshair_marker, pane_index)  # ADD crosshair_marker
+        self._lines.append(line)
+        return line
 
     def create_histogram(
             self, name: str = '', color: str = 'rgba(214, 237, 255, 0.6)',
             price_line: bool = True, price_label: bool = True,
-            scale_margin_top: float = 0.0, scale_margin_bottom: float = 0.0
+            scale_margin_top: float = 0.0, scale_margin_bottom: float = 0.0,
+            pane_index: int = 0  # ADD THIS PARAMETER
     ) -> Histogram:
         """
         Creates and returns a Histogram object.
+        
+        Args:
+            pane_index: The pane index to add this histogram to (0 = main pane)
         """
-        return Histogram(
+        histogram = Histogram(
             self, name, color, price_line, price_label,
-            scale_margin_top, scale_margin_bottom)
+            scale_margin_top, scale_margin_bottom, pane_index)  # Pass pane_index
+        self.pane_manager.track_series(histogram, pane_index)
+        return histogram
 
     def lines(self) -> List[Line]:
         """
@@ -967,3 +978,147 @@ class AbstractChart(Candlestick, Pane):
         args = locals()
         del args['self']
         return self.win.create_subchart(*args.values())
+    
+    def set_pane_heights(self, *heights):
+        """
+        Set relative heights for all panes.
+        
+        Args:
+            *heights: Variable number of height values (e.g., 0.6, 0.15, 0.15, 0.1)
+                    These should sum to approximately 1.0
+        
+        Example:
+            chart.set_pane_heights(0.6, 0.15, 0.15, 0.1)  # 4 panes with specific proportions
+        """
+        total_height = sum(heights)
+        if abs(total_height - 1.0) > 0.01:
+            print(f"Warning: Heights sum to {total_height}, not 1.0")
+        
+        window_height = 1000  # Default, will be adjusted
+        self.run_script(f'''
+            const chartHeight = {self.id}.chart.chartElement().clientHeight;
+            const panes = {self.id}.chart.panes();
+            const heights = {list(heights)};
+            
+            for (let i = 0; i < Math.min(panes.length, heights.length); i++) {{
+                const pixelHeight = Math.floor(chartHeight * heights[i]);
+                panes[i].setHeight(pixelHeight);
+            }}
+        ''')
+
+
+    def configure_pane_separators(
+        self,
+        visible: bool = True,
+        color: str = '#2B2B43',
+        hover_color: str = 'rgba(100, 100, 255, 0.3)',
+        width: int = 1,
+        draggable: bool = True
+    ):
+        """
+        Configure the visual separators between panes
+        
+        Args:
+            visible: Show pane separators
+            color: Separator line color
+            hover_color: Color when hovering over separator
+            width: Separator line width in pixels
+            draggable: Allow dragging to resize panes
+        
+        Example:
+            chart.configure_pane_separators(
+                visible=True,
+                color='#3C434C',
+                hover_color='rgba(60, 150, 255, 0.5)',
+                draggable=True
+            )
+        """
+        self.run_script(f'''
+            {self.id}.chart.applyOptions({{
+                layout: {{
+                    attributionLogo: false,
+                }},
+                grid: {{
+                    vertLines: {{ visible: true }},
+                    horzLines: {{ visible: true }},
+                }},
+            }});
+            
+            // Add custom CSS for pane separators
+            const style = document.createElement('style');
+            style.textContent = `
+                .tv-lightweight-charts__pane-separator {{
+                    background-color: {color} !important;
+                    height: {width}px !important;
+                    {f'cursor: ns-resize !important;' if draggable else ''}
+                }}
+                .tv-lightweight-charts__pane-separator:hover {{
+                    background-color: {hover_color} !important;
+                }}
+            `;
+            document.head.appendChild(style);
+        ''')
+
+
+    def resize_pane(self, pane_index: int, height_pixels: int):
+        """
+        Resize a specific pane
+        
+        Args:
+            pane_index: Index of pane to resize (0 = main chart)
+            height_pixels: Height in pixels
+        
+        Example:
+            chart.resize_pane(0, 600)  # Main chart 600px
+            chart.resize_pane(1, 150)  # Volume 150px
+            chart.resize_pane(2, 150)  # RSI 150px
+        """
+        self.run_script(f'''
+            setTimeout(() => {{
+                const panes = {self.id}.chart.panes();
+                if (panes && panes[{pane_index}]) {{
+                    try {{
+                        panes[{pane_index}].setHeight({height_pixels});
+                    }} catch(e) {{
+                        console.log('Pane resize not available in this version');
+                    }}
+                }}
+            }}, 100);
+        ''')
+
+    def set_pane_proportions(self, *proportions):
+        """
+        Set pane heights as proportions of total chart height
+        
+        Args:
+            *proportions: Height proportions (should sum to ~1.0)
+        
+        Example:
+            chart.set_pane_proportions(0.6, 0.2, 0.2)  # 60%, 20%, 20%
+        """
+        total = sum(proportions)
+        if abs(total - 1.0) > 0.01:
+            print(f"Warning: Proportions sum to {total:.2f}, normalizing to 1.0")
+            proportions = tuple(p/total for p in proportions)
+        
+        self.run_script(f'''
+            setTimeout(() => {{
+                const chartHeight = {self.id}.chart.chartElement().clientHeight;
+                const proportions = {list(proportions)};
+                const panes = {self.id}.chart.panes();
+                
+                if (!panes) {{
+                    console.log('Panes API not available');
+                    return;
+                }}
+                
+                for (let i = 0; i < Math.min(panes.length, proportions.length); i++) {{
+                    try {{
+                        const height = Math.floor(chartHeight * proportions[i]);
+                        panes[i].setHeight(height);
+                    }} catch(e) {{
+                        console.log('Pane', i, 'resize failed:', e);
+                    }}
+                }}
+            }}, 100);
+        ''')

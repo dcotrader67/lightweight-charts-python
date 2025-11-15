@@ -155,42 +155,94 @@ export class Handler {
     createCandlestickSeries() {
         const up = 'rgba(39, 157, 130, 100)'
         const down = 'rgba(200, 97, 100, 100)'
-        const candleSeries = this.chart.addCandlestickSeries({
+        const candleSeries = this.chart.addSeries('Candlestick', {
             upColor: up, borderUpColor: up, wickUpColor: up,
             downColor: down, borderDownColor: down, wickDownColor: down
-        });
+        } as CandlestickSeriesPartialOptions, 0);  // Explicitly add to pane 0
         candleSeries.priceScale().applyOptions({
             scaleMargins: {top: 0.2, bottom: 0.2},
         });
         return candleSeries;
     }
-
+    
     createVolumeSeries() {
-        const volumeSeries = this.chart.addHistogramSeries({
+        const volumeSeries = this.chart.addSeries('Histogram', {
             color: '#26a69a',
             priceFormat: {type: 'volume'},
             priceScaleId: 'volume_scale',
-        })
+        } as HistogramSeriesPartialOptions, 0)  // Explicitly add to pane 0
         volumeSeries.priceScale().applyOptions({
             scaleMargins: {top: 0.8, bottom: 0},
         });
         return volumeSeries;
     }
 
-    createLineSeries(name: string, options: DeepPartial<LineStyleOptions & SeriesOptionsCommon>) {
-        const line = this.chart.addLineSeries({...options});
+    createLineSeries(name: string, options: DeepPartial<LineStyleOptions & SeriesOptionsCommon>, paneIndex: number = 0) {
+        // For pane 0 (main pane), just add normally
+        if (paneIndex === 0) {
+            const line = this.chart.addSeries('Line', {...options} as LineSeriesPartialOptions);
+            this._seriesList.push(line);
+            this.legend.makeSeriesRow(name, line);
+            return {
+                name: name,
+                series: line,
+            };
+        }
+        
+        // For other panes, we need to ensure the pane exists
+        // Get all current panes
+        const panes = this.chart.panes();
+        
+        // If paneIndex is beyond current panes, we need to add series to create new panes
+        // TradingView v5 auto-creates panes when you specify a paneIndex that doesn't exist
+        const line = this.chart.addSeries('Line', {...options} as LineSeriesPartialOptions, paneIndex);
         this._seriesList.push(line);
-        this.legend.makeSeriesRow(name, line)
+        this.legend.makeSeriesRow(name, line);
+        
+        // Set pane height if stored
+        if ((this as any)._paneHeights && (this as any)._paneHeights[paneIndex]) {
+            // Wait a tick for the pane to be created
+            setTimeout(() => {
+                const updatedPanes = this.chart.panes();
+                if (updatedPanes[paneIndex]) {
+                    updatedPanes[paneIndex].setHeight((this as any)._paneHeights[paneIndex]);
+                }
+            }, 0);
+        }
+        
         return {
             name: name,
             series: line,
-        }
+        };
     }
 
-    createHistogramSeries(name: string, options: DeepPartial<HistogramStyleOptions & SeriesOptionsCommon>) {
-        const line = this.chart.addHistogramSeries({...options});
+    createHistogramSeries(name: string, options: DeepPartial<HistogramStyleOptions & SeriesOptionsCommon>, paneIndex: number = 0) {
+        // For pane 0 (main pane), just add normally
+        if (paneIndex === 0) {
+            const line = this.chart.addSeries('Histogram', {...options} as HistogramSeriesPartialOptions);
+            this._seriesList.push(line);
+            this.legend.makeSeriesRow(name, line);
+            return {
+                name: name,
+                series: line,
+            };
+        }
+        
+        // For other panes with paneIndex
+        const line = this.chart.addSeries('Histogram', {...options} as HistogramSeriesPartialOptions, paneIndex);
         this._seriesList.push(line);
-        this.legend.makeSeriesRow(name, line)
+        this.legend.makeSeriesRow(name, line);
+        
+        // Set pane height if stored
+        if ((this as any)._paneHeights && (this as any)._paneHeights[paneIndex]) {
+            setTimeout(() => {
+                const updatedPanes = this.chart.panes();
+                if (updatedPanes[paneIndex]) {
+                    updatedPanes[paneIndex].setHeight((this as any)._paneHeights[paneIndex]);
+                }
+            }, 0);
+        }
+        
         return {
             name: name,
             series: line,
