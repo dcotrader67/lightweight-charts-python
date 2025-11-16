@@ -207,6 +207,97 @@ class TradingLayout:
         return chart, subcharts
     
     @staticmethod
+    def create_grid_2x2(
+        width: int = 1920,
+        height: int = 1080,
+        sync_crosshairs: bool = True,
+        title: str = ''
+    ) -> Tuple:
+        """
+        Create a 2x2 grid layout with 4 synchronized charts.
+        
+        Perfect for:
+        - Multi-timeframe analysis
+        - Comparing multiple symbols
+        - Technical analysis dashboards
+        
+        Args:
+            width: Window width in pixels
+            height: Window height in pixels
+            sync_crosshairs: Synchronize crosshairs across all charts
+            title: Window title
+            
+        Returns:
+            (main_chart, top_left, top_right, bottom_left, bottom_right)
+            
+        Example:
+            >>> from lightweight_charts.trading_layouts import TradingLayout
+            >>> 
+            >>> # Create grid
+            >>> main, tl, tr, bl, br = TradingLayout.create_grid_2x2(
+            ...     width=1920, 
+            ...     height=1080,
+            ...     sync_crosshairs=True,
+            ...     title="Multi-Timeframe Analysis"
+            ... )
+            >>> 
+            >>> # Set data for each chart
+            >>> tl.set(df_1h)
+            >>> tl.watermark('1H')
+            >>> 
+            >>> tr.set(df_4h)
+            >>> tr.watermark('4H')
+            >>> 
+            >>> bl.set(df_1d)
+            >>> bl.watermark('1D')
+            >>> 
+            >>> br.set(df_1w)
+            >>> br.watermark('1W')
+            >>> 
+            >>> # Show the grid
+            >>> main.show(block=True)
+        """
+        from lightweight_charts import Chart
+        
+        # Create main container chart
+        chart = Chart(width=width, height=height, title=title)
+        
+        # Create 2x2 grid
+        tl, tr, bl, br = chart.create_grid_2x2(
+            sync_id=chart.id if sync_crosshairs else None,
+            sync_crosshairs_only=True
+        )
+        
+        # Apply consistent styling to all charts
+        for c in [tl, tr, bl, br]:
+            c.layout(
+                background_color='#0C0D0F',
+                text_color='#D8D9DB',
+                font_size=11
+            )
+            
+            c.grid(
+                vert_enabled=True,
+                horz_enabled=True,
+                color='rgba(42, 46, 57, 0.5)',
+                style='solid'
+            )
+            
+            c.crosshair(
+                mode='normal',
+                vert_visible=True,
+                vert_color='rgba(150, 150, 150, 0.5)',
+                vert_style='dashed',
+                horz_visible=True,
+                horz_color='rgba(150, 150, 150, 0.5)',
+                horz_style='dashed'
+            )
+            
+            c.legend(visible=True, ohlc=True, percent=True, lines=True)
+        
+        return chart, tl, tr, bl, br
+    
+    @staticmethod
     def _get_indicator_color(name: str) -> str:
         """Get appropriate color based on indicator name"""
         name_lower = name.lower()

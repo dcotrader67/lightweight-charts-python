@@ -2,9 +2,10 @@ import asyncio
 import json
 import logging
 import multiprocessing as mp
+import typing  # FIXED: Added missing typing import
 import webview
 from webview.errors import JavascriptException
-from queue import Empty
+from queue import Empty, Full  # FIXED: Added Full import
 
 from lightweight_charts import abstract
 from typing import Dict, Optional, Any
@@ -176,6 +177,8 @@ class WebviewHandler():
 
     QUEUE_TIMEOUT = 5.0  # seconds
     
+    # FIXED: Removed duplicate evaluate_js method (was at line 179-188 AND 208-209)
+    # Kept the version with timeout and proper error handling
     def evaluate_js(self, window_num: int, script: str) -> None:
         """Evaluate JavaScript with timeout"""
         try:
@@ -204,9 +207,6 @@ class WebviewHandler():
 
     def hide(self, window_num):
         self.function_call_queue.put((window_num, 'hide'))
-
-    def evaluate_js(self, window_num, script):
-        self.function_call_queue.put((window_num, script))
 
     def exit(self):
         """Safe exit with proper resource cleanup"""
@@ -358,4 +358,4 @@ class Chart(abstract.AbstractChart):
             if hasattr(self, 'is_alive') and self.is_alive:
                 self.exit()
         except Exception:
-            pass 
+            pass

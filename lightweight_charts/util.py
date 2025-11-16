@@ -51,14 +51,28 @@ def snake_to_camel(s: str):
     return components[0] + ''.join(x.title() for x in components[1:])
 
 def js_json(d: dict):
+    """
+    Convert a Python dict to JavaScript JSON format.
+    
+    FIXED: Now properly escapes strings to prevent JavaScript injection.
+    Uses json.dumps for proper escaping, then ensures safe embedding in JavaScript.
+    """
     filtered_dict = {}
     for key, val in d.items():
-        if key in ('self') or val in (None,):
+        if key in ('self',) or val is None:
             continue
         if '_' in key:
             key = snake_to_camel(key)
         filtered_dict[key] = val
-    return f"JSON.parse('{json.dumps(filtered_dict)}')"
+    
+    # Use json.dumps with proper escaping
+    json_str = json.dumps(filtered_dict)
+    
+    # Escape backslashes and single quotes for safe embedding in JavaScript string
+    # This prevents injection when the result is used in template strings
+    json_str = json_str.replace('\\', '\\\\').replace("'", "\\'")
+    
+    return f"JSON.parse('{json_str}')"
 
 
 def jbool(b: bool): return 'true' if b is True else 'false' if b is False else None

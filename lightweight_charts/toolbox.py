@@ -7,7 +7,15 @@ class ToolBox:
         self.id = chart.id
         self._save_under = None
         self.drawings = {}
-        chart.win.handlers[f'save_drawings{self.id}'] = self._save_drawings
+        
+        # FIX: Get the actual Window object, even for subcharts
+        # For subcharts, chart.win might be another chart, so we need to traverse up
+        window = chart.win
+        while hasattr(window, 'win'):
+            window = window.win
+        
+        # Now 'window' is the actual Window object with handlers
+        window.handlers[f'save_drawings{self.id}'] = self._save_drawings
         self.run_script(f'{self.id}.createToolBox()')
 
     def save_drawings_under(self, widget: 'Widget'):
@@ -43,3 +51,4 @@ class ToolBox:
         if not self._save_under:
             return
         self.drawings[self._save_under.value] = json.loads(drawings)
+

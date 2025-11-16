@@ -30,7 +30,7 @@ class Drawing(Pane):
         for i in range(0, len(points), 2):
             formatted_points.append(make_js_point(self.chart, points[i], points[i + 1]))
         self.run_script(f'{self.id}.updatePoints({", ".join(formatted_points)})')
-        print(f'{self.id}.updatePoints({", ".join(formatted_points)})')
+        # FIXED: Removed debug print statement
 
     def delete(self):
         """
@@ -143,8 +143,8 @@ class VerticalLine(Drawing):
 
     def update(self, time: TIME):
         self.run_script(f'{self.id}.updatePoints({{time: {time}}})')
-        # self.run_script(f'{self.id}.updatePrice({price})')
-        self.price = price
+        # FIXED: Changed from self.price = price to self.time = time
+        self.time = time
 
     def options(self, color='#1E80F0', style='solid', width=4, text=''):
         super().options(color, style, width)
@@ -241,6 +241,98 @@ class TrendLine(TwoPointDrawing):
             },
             func
         )
+
+
+class FibonacciRetracement(TwoPointDrawing):
+    """
+    Fibonacci Retracement tool - draws horizontal lines at key Fibonacci levels
+    between two price points.
+    
+    Standard levels: 0%, 23.6%, 38.2%, 50%, 61.8%, 78.6%, 100%
+    """
+    def __init__(self,
+        chart,
+        start_time: TIME,
+        start_value: NUM,
+        end_time: TIME,
+        end_value: NUM,
+        round: bool = False,
+        line_color: str = '#787B86',
+        width: int = 1,
+        style: LINE_STYLE = 'solid',
+        levels: Optional[list] = None,
+        labels: bool = True,
+        func=None):
+        
+        # Default Fibonacci levels
+        if levels is None:
+            levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]
+        
+        super().__init__(
+            "FibonacciRetracement",
+            chart,
+            start_time,
+            start_value,
+            end_time,
+            end_value,
+            round,
+            {
+                "lineColor": f'"{line_color}"',
+                "width": width,
+                "lineStyle": as_enum(style, LINE_STYLE),
+                "levels": levels,
+                "showLabels": "true" if labels else "false"
+            },
+            func
+        )
+
+
+class FibonacciTrend(TwoPointDrawing):
+    """
+    Fibonacci Trend-Based Extension tool - projects Fibonacci levels forward
+    based on a trend.
+    
+    Used to identify potential support/resistance levels in the direction of the trend.
+    Standard levels: 0%, 38.2%, 61.8%, 100%, 138.2%, 161.8%, 200%, 261.8%
+    """
+    def __init__(self,
+        chart,
+        start_time: TIME,
+        start_value: NUM,
+        end_time: TIME,
+        end_value: NUM,
+        round: bool = False,
+        line_color: str = '#787B86',
+        width: int = 1,
+        style: LINE_STYLE = 'solid',
+        levels: Optional[list] = None,
+        labels: bool = True,
+        extend: bool = True,
+        func=None):
+        
+        # Default Fibonacci extension levels
+        if levels is None:
+            levels = [0, 0.382, 0.618, 1.0, 1.382, 1.618, 2.0, 2.618]
+        
+        super().__init__(
+            "FibonacciTrend",
+            chart,
+            start_time,
+            start_value,
+            end_time,
+            end_value,
+            round,
+            {
+                "lineColor": f'"{line_color}"',
+                "width": width,
+                "lineStyle": as_enum(style, LINE_STYLE),
+                "levels": levels,
+                "showLabels": "true" if labels else "false",
+                "extend": "true" if extend else "false"
+            },
+            func
+        )
+
 
 # TODO reimplement/fix
 class VerticalSpan(Pane):

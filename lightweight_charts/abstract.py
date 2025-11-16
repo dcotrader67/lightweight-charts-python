@@ -215,7 +215,7 @@ class SeriesCommon(Pane):
                 arg = pd.to_datetime(arg, unit='ms')
             except ValueError:
                 arg = pd.to_datetime(arg)
-        arg = self._interval * (arg.timestamp() // self._interval)+self.offset
+        arg = arg.value // 10 ** 9
         return arg
 
     def set(self, df: Optional[pd.DataFrame] = None, format_cols: bool = True):
@@ -365,6 +365,71 @@ class SeriesCommon(Pane):
         text: str = ''
     ) -> VerticalLine:
         return VerticalLine(*locals().values())
+    
+    def fibonacci_retracement(
+        self,
+        start_time: TIME,
+        start_value: NUM,
+        end_time: TIME,
+        end_value: NUM,
+        round: bool = False,
+        line_color: str = '#787B86',
+        width: int = 1,
+        style: LINE_STYLE = 'solid',
+        levels: Optional[List[float]] = None,
+        labels: bool = True,
+        func=None
+    ) -> 'FibonacciRetracement':
+        """
+        Creates a Fibonacci Retracement tool.
+        
+        Standard levels: 0%, 23.6%, 38.2%, 50%, 61.8%, 78.6%, 100%
+        
+        Example:
+            fib = chart.fibonacci_retracement(
+                '2024-01-01', 100,
+                '2024-01-10', 150,
+                line_color='#3179F5'
+            )
+        """
+        from .drawings import FibonacciRetracement
+        return FibonacciRetracement(
+            self, start_time, start_value, end_time, end_value,
+            round, line_color, width, style, levels, labels, func
+        )
+
+    def fibonacci_trend(
+        self,
+        start_time: TIME,
+        start_value: NUM,
+        end_time: TIME,
+        end_value: NUM,
+        round: bool = False,
+        line_color: str = '#787B86',
+        width: int = 1,
+        style: LINE_STYLE = 'solid',
+        levels: Optional[List[float]] = None,
+        labels: bool = True,
+        extend: bool = True,
+        func=None
+    ) -> 'FibonacciTrend':
+        """
+        Creates a Fibonacci Trend-Based Extension tool.
+        
+        Standard levels: 0%, 38.2%, 61.8%, 100%, 138.2%, 161.8%, 200%, 261.8%
+        
+        Example:
+            fib_trend = chart.fibonacci_trend(
+                '2024-01-01', 100,
+                '2024-01-10', 120,
+                line_color='#9C27B0'
+            )
+        """
+        from .drawings import FibonacciTrend
+        return FibonacciTrend(
+            self, start_time, start_value, end_time, end_value,
+            round, line_color, width, style, levels, labels, extend, func
+        )
 
     def clear_markers(self):
         """
@@ -1207,10 +1272,12 @@ class AbstractChart(Candlestick, Pane):
         
         return top_left, top_right, bottom_left, bottom_right
     
+
     def create_layout(
         self,
         pattern: str = '2x2',
         sync_crosshairs: bool = True,
+        toolbox: bool = False,  # ✅ NEW PARAMETER
         **kwargs
     ):
         """
@@ -1227,6 +1294,7 @@ class AbstractChart(Candlestick, Pane):
                 - '1x4': 4 charts horizontal
                 - '4x1': 4 charts vertical
             sync_crosshairs: Synchronize crosshairs across all charts
+            toolbox: Enable drawing toolbox on all subcharts  # ✅ NEW
             **kwargs: Additional pattern-specific options
                 - main_ratio: Size ratio for main chart (default 0.7)
                 
@@ -1234,19 +1302,20 @@ class AbstractChart(Candlestick, Pane):
             tuple: Charts in logical order (main first if applicable)
             
         Example:
-            # Main chart + 3 indicators stacked
-            main, ind1, ind2, ind3 = chart.create_layout('main_right_3')
+            # Main chart + 3 indicators stacked WITH TOOLBOX
+            main, ind1, ind2, ind3 = chart.create_layout('main_right_3', toolbox=True)
             main.set(df)
             ind1.set(rsi_data)
-            ind2.set(macd_data)
-            ind3.set(volume_data)
         """
         pattern = pattern.lower()
         sync_id = self.id if sync_crosshairs else None
         
+        # ✅ Pass toolbox parameter to all layout methods
+        kwargs['toolbox'] = toolbox
+        
         # Pattern implementations
         if pattern == '2x2':
-            return self._layout_2x2(sync_id)
+            return self._layout_2x2(sync_id, **kwargs)
         
         elif pattern == 'main_right_3':
             return self._layout_main_right_stack(3, sync_id, **kwargs)
@@ -1258,38 +1327,40 @@ class AbstractChart(Candlestick, Pane):
             return self._layout_main_bottom_row(3, sync_id, **kwargs)
         
         elif pattern == '1x3':
-            return self._layout_horizontal(3, sync_id)
+            return self._layout_horizontal(3, sync_id, **kwargs)
         
         elif pattern == '3x1':
-            return self._layout_vertical(3, sync_id)
+            return self._layout_vertical(3, sync_id, **kwargs)
         
         elif pattern == '1x4':
-            return self._layout_horizontal(4, sync_id)
+            return self._layout_horizontal(4, sync_id, **kwargs)
         
         elif pattern == '4x1':
-            return self._layout_vertical(4, sync_id)
+            return self._layout_vertical(4, sync_id, **kwargs)
         
         else:
             raise ValueError(f"Unknown layout pattern: '{pattern}'. "
-                           f"Available: 2x2, main_right_3, main_right_4, main_bottom_3, "
-                           f"1x3, 3x1, 1x4, 4x1")
-    
+                        f"Available: 2x2, main_right_3, main_right_4, main_bottom_3, "
+                        f"1x3, 3x1, 1x4, 4x1")
+
     def _layout_main_right_stack(self, stack_count: int, sync_id, **kwargs):
         """Main chart on left + stacked charts on right"""
         main_ratio = kwargs.get('main_ratio', 0.7)
         stack_ratio = 1.0 - main_ratio
         stack_height = 1.0 / stack_count
+        toolbox = kwargs.get('toolbox', False)  # ✅ NEW
         
-        # Create main chart (left side)
+        # Create main chart (left side) with optional toolbox
         main = self.create_subchart(
             width=main_ratio,
             height=1.0,
             sync_id=sync_id,
             sync_crosshairs_only=True,
-                skip_positioning=True,
+            toolbox=toolbox,  # ✅ NEW
+            skip_positioning=True,
         )
         
-        # Create stacked charts (right side)
+        # Create stacked charts (right side) with optional toolbox
         stack_charts = []
         for i in range(stack_count):
             chart = self.create_subchart(
@@ -1297,6 +1368,7 @@ class AbstractChart(Candlestick, Pane):
                 height=stack_height,
                 sync_id=sync_id,
                 sync_crosshairs_only=True,
+                toolbox=toolbox,  # ✅ NEW
                 skip_positioning=True
             )
             stack_charts.append(chart)
@@ -1333,23 +1405,25 @@ class AbstractChart(Candlestick, Pane):
         ''', run_last=True)
         
         return tuple(all_charts)
-    
+
     def _layout_main_bottom_row(self, row_count: int, sync_id, **kwargs):
         """Main chart on top + horizontal row of charts on bottom"""
         main_ratio = kwargs.get('main_ratio', 0.7)
         row_ratio = 1.0 - main_ratio
         row_width = 1.0 / row_count
+        toolbox = kwargs.get('toolbox', False)  # ✅ NEW
         
-        # Create main chart (top)
+        # Create main chart (top) with optional toolbox
         main = self.create_subchart(
             width=1.0,
             height=main_ratio,
             sync_id=sync_id,
             sync_crosshairs_only=True,
-                skip_positioning=True
+            toolbox=toolbox,  # ✅ NEW
+            skip_positioning=True
         )
         
-        # Create row charts (bottom)
+        # Create row charts (bottom) with optional toolbox
         row_charts = []
         for i in range(row_count):
             chart = self.create_subchart(
@@ -1357,6 +1431,7 @@ class AbstractChart(Candlestick, Pane):
                 height=row_ratio,
                 sync_id=sync_id,
                 sync_crosshairs_only=True,
+                toolbox=toolbox,  # ✅ NEW
                 skip_positioning=True
             )
             row_charts.append(chart)
@@ -1393,10 +1468,11 @@ class AbstractChart(Candlestick, Pane):
         ''', run_last=True)
         
         return tuple(all_charts)
-    
-    def _layout_horizontal(self, count: int, sync_id):
+
+    def _layout_horizontal(self, count: int, sync_id, **kwargs):
         """Horizontal row of equal-sized charts"""
         width = 1.0 / count
+        toolbox = kwargs.get('toolbox', False)  # ✅ NEW
         charts = []
         
         for i in range(count):
@@ -1405,6 +1481,7 @@ class AbstractChart(Candlestick, Pane):
                 height=1.0,
                 sync_id=sync_id,
                 sync_crosshairs_only=True,
+                toolbox=toolbox,  # ✅ NEW
                 skip_positioning=True
             )
             charts.append(chart)
@@ -1429,10 +1506,11 @@ class AbstractChart(Candlestick, Pane):
         ''', run_last=True)
         
         return tuple(charts)
-    
-    def _layout_vertical(self, count: int, sync_id):
+
+    def _layout_vertical(self, count: int, sync_id, **kwargs):
         """Vertical column of equal-sized charts"""
         height = 1.0 / count
+        toolbox = kwargs.get('toolbox', False)  # ✅ NEW
         charts = []
         
         for i in range(count):
@@ -1441,6 +1519,7 @@ class AbstractChart(Candlestick, Pane):
                 height=height,
                 sync_id=sync_id,
                 sync_crosshairs_only=True,
+                toolbox=toolbox,  # ✅ NEW
                 skip_positioning=True
             )
             charts.append(chart)
@@ -1465,9 +1544,10 @@ class AbstractChart(Candlestick, Pane):
         ''', run_last=True)
         
         return tuple(charts)
-    
-    def _layout_2x2(self, sync_id):
+
+    def _layout_2x2(self, sync_id, **kwargs):
         """2x2 grid of equal-sized charts using Flexbox"""
+        toolbox = kwargs.get('toolbox', False)  # ✅ NEW
         charts = []
         
         # Create 4 charts (top-left, top-right, bottom-left, bottom-right)
@@ -1477,6 +1557,7 @@ class AbstractChart(Candlestick, Pane):
                 height=0.5,
                 sync_id=sync_id,
                 sync_crosshairs_only=True,
+                toolbox=toolbox,  # ✅ NEW
                 skip_positioning=True
             )
             charts.append(chart)
