@@ -875,14 +875,19 @@ class AbstractChart(Candlestick, Pane):
         Adds a watermark to the chart.
         """
         self.run_script(f'''
-          {self.id}.chart.applyOptions({{
-              watermark: {{
-                  visible: true,
-                  horzAlign: 'center',
-                  vertAlign: 'center',
-                  ...{js_json(locals())}
-              }}
-          }})''')
+        setTimeout(() => {{
+            if ({self.id}.chart && {self.id}.chart.applyOptions) {{
+                {self.id}.chart.applyOptions({{
+                    watermark: {{
+                        visible: true,
+                        horzAlign: 'center',
+                        vertAlign: 'center',
+                        ...{js_json(locals())}
+                    }}
+                }});
+            }}
+        }}, 100);
+        ''')
 
     def legend(self, visible: bool = False, ohlc: bool = True, percent: bool = True, lines: bool = True,
                color: str = 'rgb(191, 195, 203)', font_size: int = 11, font_family: str = 'Monaco',
@@ -969,42 +974,236 @@ class AbstractChart(Candlestick, Pane):
         serial_data = self.win.run_script_and_get(f'{self.id}.chart.takeScreenshot().toDataURL()')
         return b64decode(serial_data.split(',')[1])
 
-    def create_subchart(self, position: FLOAT = 'left', width: float = 0.5, height: float = 0.5,
-                        sync: Optional[Union[str, bool]] = None, scale_candles_only: bool = False,
-                        sync_crosshairs_only: bool = False,
-                        toolbox: bool = False) -> 'AbstractChart':
-        if sync is True:
-            sync = self.id
-        args = locals()
-        del args['self']
-        return self.win.create_subchart(*args.values())
-    
-    def set_pane_heights(self, *heights):
-        """
-        Set relative heights for all panes.
+    def create_subchart(
+        self,
+        position: FLOAT = 'left',
+        width: float = 0.5,
+        height: float = 0.5,
+        sync_id: Optional[str] = None,
+        scale_candles_only: bool = False,
+        sync_crosshairs_only: bool = False,
+        toolbox: bool = False
+    ) -> 'AbstractChart':
+        subchart = AbstractChart(
+            self,
+            width,
+            height,
+            scale_candles_only,
+            toolbox,
+            position=position
+        )
         
-        Args:
-            *heights: Variable number of height values (e.g., 0.6, 0.15, 0.15, 0.1)
-                    These should sum to approximately 1.0
+        # Calculate absolute position based on parent
+        # Track parent's position if this is a nested subchart
+        parent_left = 0
+        parent_top = 0
         
-        Example:
-            chart.set_pane_heights(0.6, 0.15, 0.15, 0.1)  # 4 panes with specific proportions
-        """
-        total_height = sum(heights)
-        if abs(total_height - 1.0) > 0.01:
-            print(f"Warning: Heights sum to {total_height}, not 1.0")
+        # Check if parent has position (is also a subchart)
+        if hasattr(self, '_abs_left'):
+            parent_left = self._abs_left
+            parent_top = self._abs_top
         
-        window_height = 1000  # Default, will be adjusted
+        # Calculate this subchart's absolute position
+        position_offsets = {
+            'left': (0, 0),
+            'right': (0.5, 0),
+            'top': (0, 0),
+            'bottom': (0, 0.5)
+        }
+        
+        offset_x, offset_y = position_offsets.get(position, (0, 0))
+        abs_left = parent_left + offset_x
+        abs_top = parent_top + offset_y
+        
+        # Store on subchart for future nested subcharts
+        subchart._abs_left = abs_left
+        subchart._abs_top = abs_top
+        
+        # Check if this is the first subchart created from root chart
+        # If so, resize the root chart to 50% x 50% (top-left quadrant)
+        is_root_chart = not hasattr(self, '_abs_left')
+        first_subchart_from_root = is_root_chart and not hasattr(self, '_grid_initialized')
+        
+        if first_subchart_from_root:
+            self._grid_initialized = True  # Mark that we've started the grid
+            # Resize main chart to top-left quadrant
+            self.run_script(f'''
+                (function() {{
+                    console.log('🔥 FIRST SUBCHART DETECTED - RESIZING MAIN CHART');
+                    const mainWrapper = {self.id}.wrapper;
+                    const container = document.getElementById('container');
+                    const containerRect = container.getBoundingClientRect();
+                    
+                    console.log('Container size:', containerRect.width, 'x', containerRect.height);
+                    console.log('Main chart BEFORE resize:', {{
+                        width: mainWrapper.style.width || 'auto',
+                        height: mainWrapper.style.height || 'auto',
+                        position: mainWrapper.style.position || 'static'
+                    }});
+                    
+                    mainWrapper.style.position = 'absolute';
+                    mainWrapper.style.left = '0px';
+                    mainWrapper.style.top = '0px';
+                    mainWrapper.style.width = (0.5 * containerRect.width) + 'px';
+                    mainWrapper.style.height = (0.5 * containerRect.height) + 'px';
+                    
+                    console.log('✅ Main chart AFTER resize:', {{
+                        width: mainWrapper.style.width,
+                        height: mainWrapper.style.height,
+                        left: mainWrapper.style.left,
+                        top: mainWrapper.style.top,
+                        position: mainWrapper.style.position,
+                        calculated: 'x=0, y=0 (TOP-LEFT QUADRANT)'
+                    }});
+                }})();
+            ''', run_last=True)
+        
+        # FIX: Force absolute positioning for subcharts
         self.run_script(f'''
-            const chartHeight = {self.id}.chart.chartElement().clientHeight;
-            const panes = {self.id}.chart.panes();
-            const heights = {list(heights)};
+            (function() {{
+                console.log('📊 Positioning subchart {subchart.id}');
+                const wrapper = {subchart.id}.wrapper;
+                const container = document.getElementById('container');
+                const containerRect = container.getBoundingClientRect();
+                
+                console.log('Python calculated position:', {{
+                    abs_left: {abs_left},
+                    abs_top: {abs_top},
+                    width_fraction: {width},
+                    height_fraction: {height}
+                }});
+                
+                wrapper.style.position = 'absolute';
+                wrapper.style.float = 'none';
+                wrapper.style.left = ({abs_left} * containerRect.width) + 'px';
+                wrapper.style.top = ({abs_top} * containerRect.height) + 'px';
+                wrapper.style.width = ({width} * containerRect.width) + 'px';
+                wrapper.style.height = ({height} * containerRect.height) + 'px';
+                
+                console.log('✅ Subchart {subchart.id} positioned:', {{
+                    left: wrapper.style.left,
+                    top: wrapper.style.top,
+                    width: wrapper.style.width,
+                    height: wrapper.style.height,
+                    calculated: 'x={abs_left}, y={abs_top}'
+                }});
+            }})();
+        ''', run_last=True)
+        
+        if not sync_id:
+            return subchart
+        self.run_script(f'''
+            Lib.Handler.syncCharts(
+                {subchart.id},
+                {sync_id},
+                {jbool(sync_crosshairs_only)}
+            )
+        ''', run_last=True)
+        return subchart
+    
+    def create_grid_2x2(
+        self,
+        sync_id: Optional[str] = None,
+        sync_crosshairs_only: bool = False
+    ) -> tuple['AbstractChart', 'AbstractChart', 'AbstractChart', 'AbstractChart']:
+        """
+        Creates a 2x2 grid layout with 4 charts.
+        
+        Returns:
+            tuple: (top_left, top_right, bottom_left, bottom_right) charts
             
-            for (let i = 0; i < Math.min(panes.length, heights.length); i++) {{
-                const pixelHeight = Math.floor(chartHeight * heights[i]);
-                panes[i].setHeight(pixelHeight);
+        Example:
+            tl, tr, bl, br = chart.create_grid_2x2()
+            tl.set(data1)
+            tr.set(data2)
+            bl.set(data3)
+            br.set(data4)
+        """
+        # Create 4 subcharts
+        top_left = self.create_subchart(width=0.5, height=0.5, sync_id=sync_id, 
+                                        sync_crosshairs_only=sync_crosshairs_only)
+        top_right = self.create_subchart(width=0.5, height=0.5, sync_id=sync_id,
+                                        sync_crosshairs_only=sync_crosshairs_only)
+        bottom_left = self.create_subchart(width=0.5, height=0.5, sync_id=sync_id,
+                                            sync_crosshairs_only=sync_crosshairs_only)
+        bottom_right = self.create_subchart(width=0.5, height=0.5, sync_id=sync_id,
+                                            sync_crosshairs_only=sync_crosshairs_only)
+        
+        # Apply grid layout using Flexbox (works in webview)
+        self.run_script(f'''
+            if (document.readyState === 'complete') {{
+                setupGrid2x2();
+            }} else {{
+                window.addEventListener('load', setupGrid2x2);
             }}
-        ''')
+            
+            function setupGrid2x2() {{
+                try {{
+                    const container = document.getElementById('container');
+                    if (!container) return;
+                    
+                    // Fix container height for webview
+                    const html = document.documentElement;
+                    const body = document.body;
+                    html.style.height = '100%';
+                    body.style.height = '100%';
+                    body.style.margin = '0';
+                    body.style.padding = '0';
+                    container.style.height = '100vh';
+                    container.style.width = '100vw';
+                    
+                    // Create row containers
+                    const topRow = document.createElement('div');
+                    const bottomRow = document.createElement('div');
+                    
+                    topRow.style.cssText = 'display:flex; flex-direction:row; width:100%; height:50%; box-sizing:border-box;';
+                    bottomRow.style.cssText = 'display:flex; flex-direction:row; width:100%; height:50%; box-sizing:border-box;';
+                    container.style.cssText = 'display:flex; flex-direction:column; width:100%; height:100%; padding:0; margin:0; box-sizing:border-box;';
+                    
+                    // Get chart wrappers (strip 'window.' prefix from IDs)
+                    const chartIds = [
+                        '{top_left.id}', '{top_right.id}', 
+                        '{bottom_left.id}', '{bottom_right.id}'
+                    ];
+                    
+                    const wrappers = [];
+                    chartIds.forEach(function(fullId) {{
+                        const actualId = fullId.replace(/^window\\./, '');
+                        const chartObj = window[actualId];
+                        if (chartObj && chartObj.wrapper) {{
+                            chartObj.wrapper.style.cssText = 'flex:1; min-width:50%; height:100%; box-sizing:border-box;';
+                            wrappers.push(chartObj.wrapper);
+                        }}
+                    }});
+                    
+                    if (wrappers.length !== 4) return;
+                    
+                    // Hide main chart
+                    const mainId = '{self.id}'.replace(/^window\\./, '');
+                    const mainChart = window[mainId];
+                    if (mainChart && mainChart.wrapper) {{
+                        mainChart.wrapper.style.display = 'none';
+                    }}
+                    
+                    // Build grid
+                    while (container.firstChild) {{
+                        container.removeChild(container.firstChild);
+                    }}
+                    
+                    topRow.appendChild(wrappers[0]);
+                    topRow.appendChild(wrappers[1]);
+                    bottomRow.appendChild(wrappers[2]);
+                    bottomRow.appendChild(wrappers[3]);
+                    
+                    container.appendChild(topRow);
+                    container.appendChild(bottomRow);
+                }} catch (error) {{
+                    console.error('Error setting up 2x2 grid:', error);
+                }}
+            }}
+        ''', run_last=True)
+        
+        return top_left, top_right, bottom_left, bottom_right
 
 
     def configure_pane_separators(
