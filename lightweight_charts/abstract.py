@@ -982,7 +982,8 @@ class AbstractChart(Candlestick, Pane):
         sync_id: Optional[str] = None,
         scale_candles_only: bool = False,
         sync_crosshairs_only: bool = False,
-        toolbox: bool = False
+        toolbox: bool = False,
+        skip_positioning: bool = False
     ) -> 'AbstractChart':
         subchart = AbstractChart(
             self,
@@ -1023,74 +1024,75 @@ class AbstractChart(Candlestick, Pane):
         # If so, resize the root chart to 50% x 50% (top-left quadrant)
         is_root_chart = not hasattr(self, '_abs_left')
         first_subchart_from_root = is_root_chart and not hasattr(self, '_grid_initialized')
+        if not skip_positioning:
         
-        if first_subchart_from_root:
-            self._grid_initialized = True  # Mark that we've started the grid
-            # Resize main chart to top-left quadrant
+            if first_subchart_from_root:
+                self._grid_initialized = True  # Mark that we've started the grid
+                # Resize main chart to top-left quadrant
+                self.run_script(f'''
+                    (function() {{
+                        console.log('🔥 FIRST SUBCHART DETECTED - RESIZING MAIN CHART');
+                        const mainWrapper = {self.id}.wrapper;
+                        const container = document.getElementById('container');
+                        const containerRect = container.getBoundingClientRect();
+                    
+                        console.log('Container size:', containerRect.width, 'x', containerRect.height);
+                        console.log('Main chart BEFORE resize:', {{
+                            width: mainWrapper.style.width || 'auto',
+                            height: mainWrapper.style.height || 'auto',
+                            position: mainWrapper.style.position || 'static'
+                        }});
+                    
+                        mainWrapper.style.position = 'absolute';
+                        mainWrapper.style.left = '0px';
+                        mainWrapper.style.top = '0px';
+                        mainWrapper.style.width = (0.5 * containerRect.width) + 'px';
+                        mainWrapper.style.height = (0.5 * containerRect.height) + 'px';
+                    
+                        console.log('✅ Main chart AFTER resize:', {{
+                            width: mainWrapper.style.width,
+                            height: mainWrapper.style.height,
+                            left: mainWrapper.style.left,
+                            top: mainWrapper.style.top,
+                            position: mainWrapper.style.position,
+                            calculated: 'x=0, y=0 (TOP-LEFT QUADRANT)'
+                        }});
+                    }})();
+                ''', run_last=True)
+        
+            # FIX: Force absolute positioning for subcharts
             self.run_script(f'''
                 (function() {{
-                    console.log('🔥 FIRST SUBCHART DETECTED - RESIZING MAIN CHART');
-                    const mainWrapper = {self.id}.wrapper;
+                    console.log('📊 Positioning subchart {subchart.id}');
+                    const wrapper = {subchart.id}.wrapper;
                     const container = document.getElementById('container');
                     const containerRect = container.getBoundingClientRect();
-                    
-                    console.log('Container size:', containerRect.width, 'x', containerRect.height);
-                    console.log('Main chart BEFORE resize:', {{
-                        width: mainWrapper.style.width || 'auto',
-                        height: mainWrapper.style.height || 'auto',
-                        position: mainWrapper.style.position || 'static'
+                
+                    console.log('Python calculated position:', {{
+                        abs_left: {abs_left},
+                        abs_top: {abs_top},
+                        width_fraction: {width},
+                        height_fraction: {height}
                     }});
-                    
-                    mainWrapper.style.position = 'absolute';
-                    mainWrapper.style.left = '0px';
-                    mainWrapper.style.top = '0px';
-                    mainWrapper.style.width = (0.5 * containerRect.width) + 'px';
-                    mainWrapper.style.height = (0.5 * containerRect.height) + 'px';
-                    
-                    console.log('✅ Main chart AFTER resize:', {{
-                        width: mainWrapper.style.width,
-                        height: mainWrapper.style.height,
-                        left: mainWrapper.style.left,
-                        top: mainWrapper.style.top,
-                        position: mainWrapper.style.position,
-                        calculated: 'x=0, y=0 (TOP-LEFT QUADRANT)'
+                
+                    wrapper.style.position = 'absolute';
+                    wrapper.style.float = 'none';
+                    wrapper.style.left = ({abs_left} * containerRect.width) + 'px';
+                    wrapper.style.top = ({abs_top} * containerRect.height) + 'px';
+                    wrapper.style.width = ({width} * containerRect.width) + 'px';
+                    wrapper.style.height = ({height} * containerRect.height) + 'px';
+                
+                    console.log('✅ Subchart {subchart.id} positioned:', {{
+                        left: wrapper.style.left,
+                        top: wrapper.style.top,
+                        width: wrapper.style.width,
+                        height: wrapper.style.height,
+                        calculated: 'x={abs_left}, y={abs_top}'
                     }});
                 }})();
             ''', run_last=True)
         
-        # FIX: Force absolute positioning for subcharts
-        self.run_script(f'''
-            (function() {{
-                console.log('📊 Positioning subchart {subchart.id}');
-                const wrapper = {subchart.id}.wrapper;
-                const container = document.getElementById('container');
-                const containerRect = container.getBoundingClientRect();
-                
-                console.log('Python calculated position:', {{
-                    abs_left: {abs_left},
-                    abs_top: {abs_top},
-                    width_fraction: {width},
-                    height_fraction: {height}
-                }});
-                
-                wrapper.style.position = 'absolute';
-                wrapper.style.float = 'none';
-                wrapper.style.left = ({abs_left} * containerRect.width) + 'px';
-                wrapper.style.top = ({abs_top} * containerRect.height) + 'px';
-                wrapper.style.width = ({width} * containerRect.width) + 'px';
-                wrapper.style.height = ({height} * containerRect.height) + 'px';
-                
-                console.log('✅ Subchart {subchart.id} positioned:', {{
-                    left: wrapper.style.left,
-                    top: wrapper.style.top,
-                    width: wrapper.style.width,
-                    height: wrapper.style.height,
-                    calculated: 'x={abs_left}, y={abs_top}'
-                }});
-            }})();
-        ''', run_last=True)
-        
-        if not sync_id:
+        if not sync_id or skip_positioning:
             return subchart
         self.run_script(f'''
             Lib.Handler.syncCharts(
@@ -1204,6 +1206,320 @@ class AbstractChart(Candlestick, Pane):
         ''', run_last=True)
         
         return top_left, top_right, bottom_left, bottom_right
+    
+    def create_layout(
+        self,
+        pattern: str = '2x2',
+        sync_crosshairs: bool = True,
+        **kwargs
+    ):
+        """
+        Create predefined chart layouts for common trading setups.
+        
+        Args:
+            pattern: Layout pattern to create. Options:
+                - '2x2': 2x2 grid (4 charts)
+                - 'main_right_3': Main chart left (70%) + 3 stacked right (30%)
+                - 'main_right_4': Main chart left (70%) + 4 stacked right (30%)
+                - 'main_bottom_3': Main chart top (70%) + 3 horizontal bottom (30%)
+                - '1x3': 3 charts horizontal
+                - '3x1': 3 charts vertical
+                - '1x4': 4 charts horizontal
+                - '4x1': 4 charts vertical
+            sync_crosshairs: Synchronize crosshairs across all charts
+            **kwargs: Additional pattern-specific options
+                - main_ratio: Size ratio for main chart (default 0.7)
+                
+        Returns:
+            tuple: Charts in logical order (main first if applicable)
+            
+        Example:
+            # Main chart + 3 indicators stacked
+            main, ind1, ind2, ind3 = chart.create_layout('main_right_3')
+            main.set(df)
+            ind1.set(rsi_data)
+            ind2.set(macd_data)
+            ind3.set(volume_data)
+        """
+        pattern = pattern.lower()
+        sync_id = self.id if sync_crosshairs else None
+        
+        # Pattern implementations
+        if pattern == '2x2':
+            return self._layout_2x2(sync_id)
+        
+        elif pattern == 'main_right_3':
+            return self._layout_main_right_stack(3, sync_id, **kwargs)
+        
+        elif pattern == 'main_right_4':
+            return self._layout_main_right_stack(4, sync_id, **kwargs)
+        
+        elif pattern == 'main_bottom_3':
+            return self._layout_main_bottom_row(3, sync_id, **kwargs)
+        
+        elif pattern == '1x3':
+            return self._layout_horizontal(3, sync_id)
+        
+        elif pattern == '3x1':
+            return self._layout_vertical(3, sync_id)
+        
+        elif pattern == '1x4':
+            return self._layout_horizontal(4, sync_id)
+        
+        elif pattern == '4x1':
+            return self._layout_vertical(4, sync_id)
+        
+        else:
+            raise ValueError(f"Unknown layout pattern: '{pattern}'. "
+                           f"Available: 2x2, main_right_3, main_right_4, main_bottom_3, "
+                           f"1x3, 3x1, 1x4, 4x1")
+    
+    def _layout_main_right_stack(self, stack_count: int, sync_id, **kwargs):
+        """Main chart on left + stacked charts on right"""
+        main_ratio = kwargs.get('main_ratio', 0.7)
+        stack_ratio = 1.0 - main_ratio
+        stack_height = 1.0 / stack_count
+        
+        # Create main chart (left side)
+        main = self.create_subchart(
+            width=main_ratio,
+            height=1.0,
+            sync_id=sync_id,
+            sync_crosshairs_only=True,
+                skip_positioning=True,
+        )
+        
+        # Create stacked charts (right side)
+        stack_charts = []
+        for i in range(stack_count):
+            chart = self.create_subchart(
+                width=stack_ratio,
+                height=stack_height,
+                sync_id=sync_id,
+                sync_crosshairs_only=True,
+                skip_positioning=True
+            )
+            stack_charts.append(chart)
+        
+        # Apply layout
+        all_charts = [main] + stack_charts
+        chart_ids = [c.id for c in all_charts]
+        
+        self.run_script(f'''
+            (function() {{
+                const c = document.getElementById('container');
+                c.style.cssText = 'display:flex;flex-direction:row;height:100vh;width:100vw;margin:0;padding:0';
+                document.body.style.cssText = 'height:100%;margin:0;padding:0';
+                document.documentElement.style.height = '100%';
+                
+                const mainCol = document.createElement('div');
+                const stackCol = document.createElement('div');
+                mainCol.style.cssText = 'display:flex;width:{main_ratio * 100}%;height:100%';
+                stackCol.style.cssText = 'display:flex;flex-direction:column;width:{stack_ratio * 100}%;height:100%';
+                
+                const ids = {json.dumps(chart_ids)};
+                const ws = ids.map(id => window[id.replace(/^window\\./,'')].wrapper);
+                ws.forEach(w => w.style.cssText = 'flex:1;height:100%');
+                
+                window['{self.id}'.replace(/^window\\./,'')].wrapper.style.display = 'none';
+                while(c.firstChild) c.removeChild(c.firstChild);
+                
+                mainCol.appendChild(ws[0]);
+                for(let i = 1; i < ws.length; i++) {{
+                    stackCol.appendChild(ws[i]);
+                }}
+                c.append(mainCol, stackCol);
+            }})();
+        ''', run_last=True)
+        
+        return tuple(all_charts)
+    
+    def _layout_main_bottom_row(self, row_count: int, sync_id, **kwargs):
+        """Main chart on top + horizontal row of charts on bottom"""
+        main_ratio = kwargs.get('main_ratio', 0.7)
+        row_ratio = 1.0 - main_ratio
+        row_width = 1.0 / row_count
+        
+        # Create main chart (top)
+        main = self.create_subchart(
+            width=1.0,
+            height=main_ratio,
+            sync_id=sync_id,
+            sync_crosshairs_only=True,
+                skip_positioning=True
+        )
+        
+        # Create row charts (bottom)
+        row_charts = []
+        for i in range(row_count):
+            chart = self.create_subchart(
+                width=row_width,
+                height=row_ratio,
+                sync_id=sync_id,
+                sync_crosshairs_only=True,
+                skip_positioning=True
+            )
+            row_charts.append(chart)
+        
+        # Apply layout
+        all_charts = [main] + row_charts
+        chart_ids = [c.id for c in all_charts]
+        
+        self.run_script(f'''
+            (function() {{
+                const c = document.getElementById('container');
+                c.style.cssText = 'display:flex;flex-direction:column;height:100vh;width:100vw;margin:0;padding:0';
+                document.body.style.cssText = 'height:100%;margin:0;padding:0';
+                document.documentElement.style.height = '100%';
+                
+                const mainRow = document.createElement('div');
+                const bottomRow = document.createElement('div');
+                mainRow.style.cssText = 'display:flex;height:{main_ratio * 100}%;width:100%';
+                bottomRow.style.cssText = 'display:flex;flex-direction:row;height:{row_ratio * 100}%;width:100%';
+                
+                const ids = {json.dumps(chart_ids)};
+                const ws = ids.map(id => window[id.replace(/^window\\./,'')].wrapper);
+                ws.forEach(w => w.style.cssText = 'flex:1');
+                
+                window['{self.id}'.replace(/^window\\./,'')].wrapper.style.display = 'none';
+                while(c.firstChild) c.removeChild(c.firstChild);
+                
+                mainRow.appendChild(ws[0]);
+                for(let i = 1; i < ws.length; i++) {{
+                    bottomRow.appendChild(ws[i]);
+                }}
+                c.append(mainRow, bottomRow);
+            }})();
+        ''', run_last=True)
+        
+        return tuple(all_charts)
+    
+    def _layout_horizontal(self, count: int, sync_id):
+        """Horizontal row of equal-sized charts"""
+        width = 1.0 / count
+        charts = []
+        
+        for i in range(count):
+            chart = self.create_subchart(
+                width=width,
+                height=1.0,
+                sync_id=sync_id,
+                sync_crosshairs_only=True,
+                skip_positioning=True
+            )
+            charts.append(chart)
+        
+        chart_ids = [c.id for c in charts]
+        
+        self.run_script(f'''
+            (function() {{
+                const c = document.getElementById('container');
+                c.style.cssText = 'display:flex;flex-direction:row;height:100vh;width:100vw;margin:0;padding:0';
+                document.body.style.cssText = 'height:100%;margin:0;padding:0';
+                document.documentElement.style.height = '100%';
+                
+                const ids = {json.dumps(chart_ids)};
+                const ws = ids.map(id => window[id.replace(/^window\\./,'')].wrapper);
+                ws.forEach(w => w.style.cssText = 'flex:1;height:100%');
+                
+                window['{self.id}'.replace(/^window\\./,'')].wrapper.style.display = 'none';
+                while(c.firstChild) c.removeChild(c.firstChild);
+                ws.forEach(w => c.appendChild(w));
+            }})();
+        ''', run_last=True)
+        
+        return tuple(charts)
+    
+    def _layout_vertical(self, count: int, sync_id):
+        """Vertical column of equal-sized charts"""
+        height = 1.0 / count
+        charts = []
+        
+        for i in range(count):
+            chart = self.create_subchart(
+                width=1.0,
+                height=height,
+                sync_id=sync_id,
+                sync_crosshairs_only=True,
+                skip_positioning=True
+            )
+            charts.append(chart)
+        
+        chart_ids = [c.id for c in charts]
+        
+        self.run_script(f'''
+            (function() {{
+                const c = document.getElementById('container');
+                c.style.cssText = 'display:flex;flex-direction:column;height:100vh;width:100vw;margin:0;padding:0';
+                document.body.style.cssText = 'height:100%;margin:0;padding:0';
+                document.documentElement.style.height = '100%';
+                
+                const ids = {json.dumps(chart_ids)};
+                const ws = ids.map(id => window[id.replace(/^window\\./,'')].wrapper);
+                ws.forEach(w => w.style.cssText = 'flex:1;width:100%');
+                
+                window['{self.id}'.replace(/^window\\./,'')].wrapper.style.display = 'none';
+                while(c.firstChild) c.removeChild(c.firstChild);
+                ws.forEach(w => c.appendChild(w));
+            }})();
+        ''', run_last=True)
+        
+        return tuple(charts)
+    
+    def _layout_2x2(self, sync_id):
+        """2x2 grid of equal-sized charts using Flexbox"""
+        charts = []
+        
+        # Create 4 charts (top-left, top-right, bottom-left, bottom-right)
+        for i in range(4):
+            chart = self.create_subchart(
+                width=0.5,
+                height=0.5,
+                sync_id=sync_id,
+                sync_crosshairs_only=True,
+                skip_positioning=True
+            )
+            charts.append(chart)
+        
+        chart_ids = [c.id for c in charts]
+        
+        self.run_script(f'''
+            (function() {{
+                const c = document.getElementById('container');
+                c.style.cssText = 'display:flex;flex-direction:column;height:100vh;width:100vw;margin:0;padding:0';
+                document.body.style.cssText = 'height:100%;margin:0;padding:0';
+                document.documentElement.style.height = '100%';
+                
+                const topRow = document.createElement('div');
+                const bottomRow = document.createElement('div');
+                topRow.style.cssText = 'display:flex;flex-direction:row;flex:1;width:100%';
+                bottomRow.style.cssText = 'display:flex;flex-direction:row;flex:1;width:100%';
+                
+                const ids = {json.dumps(chart_ids)};
+                const ws = ids.map(id => window[id.replace(/^window\\./,'')].wrapper);
+                ws.forEach(w => {{
+                    w.style.position = 'relative';
+                    w.style.left = 'auto';
+                    w.style.top = 'auto';
+                    w.style.float = 'none';
+                    w.style.flex = '1';
+                    w.style.height = '100%';
+                }});
+                
+                window['{self.id}'.replace(/^window\\./,'')].wrapper.style.display = 'none';
+                while(c.firstChild) c.removeChild(c.firstChild);
+                
+                topRow.appendChild(ws[0]);
+                topRow.appendChild(ws[1]);
+                bottomRow.appendChild(ws[2]);
+                bottomRow.appendChild(ws[3]);
+                
+                c.appendChild(topRow);
+                c.appendChild(bottomRow);
+            }})();
+        ''', run_last=True)
+        
+        return tuple(charts)
 
 
     def configure_pane_separators(
